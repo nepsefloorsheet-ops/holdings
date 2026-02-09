@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Holdings Analytics API")
 
+@app.get("/")
+async def health_check():
+    return {"status": "alive", "service": "Holdings Analytics API", "version": "1.0.0"}
+
 # CORS Management
 app.add_middleware(
     CORSMiddleware,
