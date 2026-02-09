@@ -43,41 +43,48 @@ async def get_last_trading_day(db: AsyncSession) -> date:
 
 @app.get("/")
 async def health_check():
-    return {"status": "alive", "service": "Holdings Analytics API", "version": "2.0.0"}
+    return {"status": "alive", "service": "Holdings Analytics API", "version": "2.1.0"}
 
 @app.get("/api/holdings", response_model=HoldingsResponse)
 async def get_holdings(
     broker_id: Optional[int] = Query(None),
     symbol: Optional[str] = Query(None),
-    target_date: Optional[date] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Main analytics endpoint.
-    If no target_date is provided, it defaults to the last trading day found in the DB.
+    Main analytics endpoint. Supports single day or date range.
+    Defaults to last trading day if no dates provided.
     """
     try:
-        # 1. Determine Date (Market Pill / Holiday Logic)
-        if not target_date:
-            target_date = await get_last_trading_day(db)
-            
-        start_of_day = datetime.combine(target_date, datetime.min.time())
-        end_of_day = datetime.combine(target_date, datetime.max.time())
+        # 1. Date Logic
+        if not start_date and not end_date:
+            last_day = await get_last_trading_day(db)
+            start_date = last_day
+            end_date = last_day
+        elif start_date and not end_date:
+            end_date = start_date
+        elif end_date and not start_date:
+            start_date = end_date
+
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time())
 
         # 2. Base Filters
         filters = [
             Holding.qty > 0,
-            Holding.date >= start_of_day,
-            Holding.date <= end_of_day
+            Holding.date >= start_dt,
+            Holding.date <= end_dt
         ]
         if broker_id:
             filters.append(Holding.broker_id == broker_id)
         if symbol:
             filters.append(Holding.symbol.ilike(f"%{symbol}%"))
 
-        # 3. Summary Stats for the selected date
+        # 3. Summary Stats
         summary_stmt = select(
             func.sum(Holding.qty).label("total_volume"),
             func.sum(Holding.amount).label("total_turnover"),
@@ -94,7 +101,7 @@ async def get_holdings(
             Holding.symbol,
             Holding.qty,
             Holding.amount
-        ).where(and_(*filters)).order_by(desc(Holding.qty)).limit(limit).offset(offset)
+        ).where(and_(*filters)).order_by(desc(Holding.date), desc(Holding.qty)).limit(limit).offset(offset)
 
         table_res = await db.execute(table_stmt)
         table_data = [
