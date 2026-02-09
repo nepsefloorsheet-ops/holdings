@@ -8,11 +8,11 @@ class Summary(BaseModel):
     active_entities: int
 
 class TableItem(BaseModel):
+    date: date
     broker_id: int
     symbol: str
-    quantity: float
-    turnover: float
-    date: date
+    qty: float
+    amount: float
 
 class Pagination(BaseModel):
     limit: int
