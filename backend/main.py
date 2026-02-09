@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import get_db
 from backend.models import Holding
 from backend.schemas import (
-    HoldingsResponse, Summary, TableItem, Pagination
+    HoldingsResponse, Summary, TableItem, Pagination, AggregatedItem
 )
 
 # Setup logging
@@ -94,7 +94,7 @@ async def get_holdings(
         summary_res = await db.execute(summary_stmt)
         summary_row = summary_res.first()
 
-        # 4. Fetch Raw Records
+        # 4. Fetch Raw Records (Logs)
         table_stmt = select(
             Holding.date,
             Holding.broker_id,
@@ -115,7 +115,34 @@ async def get_holdings(
             for row in table_res.all()
         ]
 
-        # 5. Pagination Count
+        # 5. Fetch Aggregated Data (Unique Summary)
+        # If symbol is searched -> group by broker_id
+        # If broker_id is searched -> group by symbol
+        group_col = Holding.broker_id
+        if broker_id and not symbol:
+            group_col = Holding.symbol
+        elif symbol:
+            group_col = Holding.broker_id
+
+        agg_stmt = select(
+            group_col.label("entity"),
+            func.sum(Holding.qty).label("total_qty"),
+            func.sum(Holding.amount).label("total_amount"),
+            func.count().label("record_count")
+        ).where(and_(*filters)).group_by(group_col).order_by(desc("total_qty"))
+
+        agg_res = await db.execute(agg_stmt)
+        aggregated_data = [
+            AggregatedItem(
+                entity_id=str(row.entity),
+                total_qty=float(row.total_qty or 0),
+                total_amount=float(row.total_amount or 0),
+                record_count=int(row.record_count or 0)
+            )
+            for row in agg_res.all()
+        ]
+
+        # 6. Pagination Count
         count_stmt = select(func.count()).select_from(Holding).where(and_(*filters))
         count_res = await db.execute(count_stmt)
         total_count = count_res.scalar() or 0
@@ -127,6 +154,7 @@ async def get_holdings(
                 active_entities=int(summary_row.active_brokers or 0)
             ),
             table_data=table_data,
+            aggregated_data=aggregated_data,
             pagination=Pagination(limit=limit, offset=offset, total=total_count)
         )
 
