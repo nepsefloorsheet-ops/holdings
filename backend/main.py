@@ -80,9 +80,9 @@ async def get_holdings(
         
         # 2. Base Filter Criteria
         filters = [
-            Holding.quantity > 0,
-            Holding.trade_date >= start,
-            Holding.trade_date <= end
+            Holding.qty > 0,
+            Holding.date >= start,
+            Holding.date <= end
         ]
         if broker_id:
             filters.append(Holding.broker_id == broker_id)
@@ -93,8 +93,8 @@ async def get_holdings(
         # total_volume, total_turnover, distinct entities
         entity_col = Holding.broker_id if group_by == "broker_id" else Holding.symbol
         summary_stmt = select(
-            func.sum(Holding.volume).label("total_volume"),
-            func.sum(Holding.turnover).label("total_turnover"),
+            func.sum(Holding.qty).label("total_volume"),
+            func.sum(Holding.amount).label("total_turnover"),
             func.count(func.distinct(entity_col)).label("active_entities")
         ).where(and_(*filters))
         
@@ -103,14 +103,18 @@ async def get_holdings(
         
         # 4. Fetch Chart Data (Group by date)
         chart_stmt = select(
-            func.date(Holding.trade_date).label("date"),
-            func.sum(Holding.volume).label("volume"),
-            func.sum(Holding.turnover).label("turnover")
-        ).where(and_(*filters)).group_by(func.date(Holding.trade_date)).order_by("date")
+            func.date(Holding.date).label("date"),
+            func.sum(Holding.qty).label("volume"),
+            func.sum(Holding.amount).label("turnover")
+        ).where(and_(*filters)).group_by(func.date(Holding.date)).order_by("date")
         
         chart_res = await db.execute(chart_stmt)
         chart_data = [
-            ChartItem(date=str(row.date), volume=float(row.volume), turnover=float(row.turnover))
+            ChartItem(
+                date=str(row.date), 
+                volume=float(row.volume or 0), 
+                turnover=float(row.turnover or 0)
+            )
             for row in chart_res.all()
         ]
 
@@ -118,18 +122,17 @@ async def get_holdings(
         group_col = Holding.broker_id if group_by == "broker_id" else Holding.symbol
         table_stmt = select(
             group_col,
-            func.sum(Holding.quantity).label("quantity"),
-            func.sum(Holding.turnover).label("turnover"),
-            func.sum(Holding.volume).label("volume")
-        ).where(and_(*filters)).group_by(group_col).order_by(desc("quantity")).limit(limit).offset(offset)
+            func.sum(Holding.qty).label("qty"),
+            func.sum(Holding.amount).label("amount")
+        ).where(and_(*filters)).group_by(group_col).order_by(desc("qty")).limit(limit).offset(offset)
 
         table_res = await db.execute(table_stmt)
         table_data = []
         for row in table_res.all():
             item_data = {
-                "quantity": float(row.quantity),
-                "turnover": float(row.turnover),
-                "volume": float(row.volume)
+                "quantity": float(row.qty or 0),
+                "turnover": float(row.amount or 0),
+                "volume": float(row.qty or 0)
             }
             if group_by == "broker_id": item_data["broker_id"] = row.broker_id
             else: item_data["symbol"] = row.symbol
@@ -138,7 +141,7 @@ async def get_holdings(
         # 6. Pagination Count
         count_stmt = select(func.count(func.distinct(group_col))).where(and_(*filters))
         count_res = await db.execute(count_stmt)
-        total_count = count_res.scalar()
+        total_count = count_res.scalar() or 0
 
         return HoldingsResponse(
             summary=Summary(
@@ -152,5 +155,5 @@ async def get_holdings(
         )
 
     except Exception as e:
-        logger.error(f"Error fetching holdings: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"DATABASE ERROR: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")

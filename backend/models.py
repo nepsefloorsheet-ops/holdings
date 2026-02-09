@@ -7,13 +7,12 @@ class Holding(Base):
     id = Column(Integer, primary_key=True, index=True)
     broker_id = Column(Integer, nullable=False)
     symbol = Column(String, nullable=False)
-    quantity = Column(Numeric, nullable=False)
-    turnover = Column(Numeric, nullable=False)
-    volume = Column(Numeric, nullable=False)
-    trade_date = Column(DateTime, nullable=False)
+    qty = Column(Numeric, nullable=False)
+    amount = Column(Numeric, nullable=False)
+    date = Column(DateTime, nullable=False)
 
     # Performance: Crucial indexes for the analytics dashboard
     __table_args__ = (
-        Index("idx_trade_date", "trade_date"),
+        Index("idx_trade_date", "date"),
         Index("idx_broker_symbol", "broker_id", "symbol"),
     )
