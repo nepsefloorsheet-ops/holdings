@@ -7,17 +7,12 @@ class Summary(BaseModel):
     total_turnover: float
     active_entities: int
 
-class ChartItem(BaseModel):
-    date: str
-    volume: float
-    turnover: float
-
 class TableItem(BaseModel):
-    broker_id: Optional[int] = None
-    symbol: Optional[str] = None
+    broker_id: int
+    symbol: str
     quantity: float
     turnover: float
-    volume: float
+    date: date
 
 class Pagination(BaseModel):
     limit: int
@@ -26,6 +21,5 @@ class Pagination(BaseModel):
 
 class HoldingsResponse(BaseModel):
     summary: Summary
-    chart_data: List[ChartItem]
     table_data: List[TableItem]
     pagination: Pagination

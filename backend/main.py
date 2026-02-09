@@ -94,56 +94,38 @@ async def get_holdings(
             filters.append(Holding.symbol.ilike(f"%{symbol}%"))
 
         # 3. Fetch Summary Stats
-        # total_volume, total_turnover, distinct entities
-        entity_col = Holding.broker_id if group_by == "broker_id" else Holding.symbol
         summary_stmt = select(
             func.sum(Holding.qty).label("total_volume"),
             func.sum(Holding.amount).label("total_turnover"),
-            func.count(func.distinct(entity_col)).label("active_entities")
+            func.count(func.distinct(Holding.broker_id)).label("active_entities")
         ).where(and_(*filters))
         
         summary_res = await db.execute(summary_stmt)
         summary_row = summary_res.first()
         
-        # 4. Fetch Chart Data (Group by date)
-        chart_stmt = select(
-            func.date(Holding.date).label("date"),
-            func.sum(Holding.qty).label("volume"),
-            func.sum(Holding.amount).label("turnover")
-        ).where(and_(*filters)).group_by(func.date(Holding.date)).order_by("date")
-        
-        chart_res = await db.execute(chart_stmt)
-        chart_data = [
-            ChartItem(
-                date=str(row.date), 
-                volume=float(row.volume or 0), 
-                turnover=float(row.turnover or 0)
-            )
-            for row in chart_res.all()
-        ]
-
-        # 5. Fetch Table Data (Grouped by entity with pagination)
-        group_col = Holding.broker_id if group_by == "broker_id" else Holding.symbol
+        # 4. Fetch Raw Table Data (No grouping)
         table_stmt = select(
-            group_col,
-            func.sum(Holding.qty).label("qty"),
-            func.sum(Holding.amount).label("amount")
-        ).where(and_(*filters)).group_by(group_col).order_by(desc("qty")).limit(limit).offset(offset)
+            Holding.broker_id,
+            Holding.symbol,
+            Holding.qty,
+            Holding.amount,
+            Holding.date
+        ).where(and_(*filters)).order_by(desc(Holding.date)).limit(limit).offset(offset)
 
         table_res = await db.execute(table_stmt)
-        table_data = []
-        for row in table_res.all():
-            item_data = {
-                "quantity": float(row.qty or 0),
-                "turnover": float(row.amount or 0),
-                "volume": float(row.qty or 0)
-            }
-            if group_by == "broker_id": item_data["broker_id"] = row.broker_id
-            else: item_data["symbol"] = row.symbol
-            table_data.append(TableItem(**item_data))
+        table_data = [
+            TableItem(
+                broker_id=row.broker_id,
+                symbol=row.symbol,
+                quantity=float(row.qty or 0),
+                turnover=float(row.amount or 0),
+                date=row.date.date() if isinstance(row.date, datetime) else row.date
+            )
+            for row in table_res.all()
+        ]
 
-        # 6. Pagination Count
-        count_stmt = select(func.count(func.distinct(group_col))).where(and_(*filters))
+        # 5. Pagination Count (Total raw records)
+        count_stmt = select(func.count()).select_from(Holding).where(and_(*filters))
         count_res = await db.execute(count_stmt)
         total_count = count_res.scalar() or 0
 
@@ -153,7 +135,6 @@ async def get_holdings(
                 total_turnover=float(summary_row.total_turnover or 0),
                 active_entities=int(summary_row.active_entities or 0)
             ),
-            chart_data=chart_data,
             table_data=table_data,
             pagination=Pagination(limit=limit, offset=offset, total=total_count)
         )
