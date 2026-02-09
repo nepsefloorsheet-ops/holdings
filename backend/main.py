@@ -1,4 +1,10 @@
+import os
+import sys
 import logging
+
+# Ensure the root directory is in the python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from datetime import datetime, timedelta, date
 from typing import List, Optional
 
